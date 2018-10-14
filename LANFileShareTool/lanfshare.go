@@ -29,23 +29,46 @@ func getCurrentDir() string {
 	return strings.Replace(dir, "\\", "/", -1)
 }
 
-func getIPByMyself() string {
-	addrs, err := net.InterfaceAddrs()
+func getIPByMyself(lisPort string) bool {
+	//addrs, err := net.InterfaceAddrs()
+	ifaceAddr, err := net.Interfaces()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	for _, addr := range addrs {
-		if ipnet, check := addr.(*net.IPNet); check && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				if judgeNetStatus(createICMP(uint16(0)), ipnet.IP.String()) {
-					return ipnet.IP.String()
+	var (
+		ip net.IP
+		//priorityJu = make([]string, 1)
+		//judge ip net priority
+	)
+
+	validCount := 0
+
+	for _, i := range ifaceAddr {
+		addrs, _ := i.Addrs()
+		for _, addr := range addrs {
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP.To4()
+			case *net.IPAddr:
+				ip = v.IP.To4()
+			}
+			//fmt.Println("check " + ip.String())
+			if ip != nil && !ip.IsLoopback() {
+				//delete ipv6 address and localhost address
+				if judgeNetStatus(createICMP(uint16(1)), ip.String()) {
+					fmt.Println(ip.String() + lisPort)
+					validCount++
 				}
 			}
 		}
 	}
 
-	return "0.0.0.0"
+	if validCount == 0 {
+		return false
+	}
+
+	return true
 }
 
 func createICMP(seq uint16) ICMP {
@@ -58,19 +81,19 @@ func createICMP(seq uint16) ICMP {
 	}
 	var buffer bytes.Buffer
 	binary.Write(&buffer, binary.BigEndian, icmp)
-	//icmp.Checknum = checkSum(buffer.Bytes())
+	icmp.Checknum = checkSum(buffer.Bytes())
 	buffer.Reset()
 	return icmp
 }
 
-/*func checkSum(data []byte) uint16 {
+func checkSum(data []byte) uint16 {
 	var (
 		sum    uint32
-		length int = len(data)
+		length = len(data)
 		index  int
 	)
 	for length > 1 {
-		sum += uint32(data[index]<<8 + uint32(data[index]))
+		sum += uint32(data[index])<<8 + uint32(data[index+1])
 		index += 2
 		length -= 2
 	}
@@ -80,7 +103,6 @@ func createICMP(seq uint16) ICMP {
 	sum += (sum >> 16)
 	return uint16(^sum)
 }
-*/
 
 func judgeNetStatus(icmp ICMP, host string) bool {
 
@@ -98,7 +120,7 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 		log.Fatal(err)
 	}
 
-	conn.SetDeadline(time.Now().Add(time.Microsecond * 5))
+	conn.SetDeadline(time.Now().Add(time.Microsecond * 5000))
 	recv := make([]byte, 1024)
 	_, err = conn.Read(recv)
 
@@ -128,14 +150,11 @@ func main() {
 
 	lisPort := choicePort()
 
-	myAddr := getIPByMyself()
-
-	if strings.Compare(myAddr, "0.0.0.0") == 0 {
-		fmt.Println("您的目录已共享成功,但是访问IP需要您来手动查找")
-	} else {
-		fmt.Println("通过浏览器访问" + myAddr + lisPort)
+	if !getIPByMyself(lisPort) {
+		fmt.Println("0.0.0.0" + lisPort)
 	}
 
 	fmt.Printf(getCurrentDir() + " 正在被共享")
+
 	http.ListenAndServe(lisPort, nil)
 }
