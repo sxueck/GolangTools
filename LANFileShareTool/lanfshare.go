@@ -120,7 +120,7 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 		log.Fatal(err)
 	}
 
-	conn.SetDeadline(time.Now().Add(time.Microsecond * 5000))
+	conn.SetDeadline(time.Now().Add(time.Microsecond * 5))
 	recv := make([]byte, 1024)
 	_, err = conn.Read(recv)
 
