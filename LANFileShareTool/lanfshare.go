@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -145,13 +146,26 @@ func choicePort() string {
 	return (":" + port)
 }
 
+//TerminalInput .
+func TerminalInput() string {
+	if len(os.Args) != 1 {
+		//终端输入
+		return os.Args[1]
+	}
+	return ""
+}
+
 func main() {
+	var lisPort string
+
+	if lisPort = TerminalInput(); lisPort == "" {
+		lisPort = choicePort()
+	}
+
 	http.Handle("/", http.FileServer(http.Dir(".")))
 
-	lisPort := choicePort()
-
 	if !getIPByMyself(lisPort) {
-		fmt.Println("0.0.0.0" + lisPort)
+		fmt.Println("")
 	}
 
 	fmt.Printf(getCurrentDir() + " 正在被共享")
