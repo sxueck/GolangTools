@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -155,7 +157,57 @@ func TerminalInput() string {
 	return ""
 }
 
+func fileUploadHander(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		uploadPage := `
+		<html>
+		<head>
+			<title>Upload File Page</title>
+		</head>
+		<body>
+			<form enctype="multipart/form-data" action="{{.PostURL}}" method="POST">
+				<input type="file" name="uFile" />
+				<input type="submit" value="上传" />
+			</form>
+		</body>
+		</html>
+		`
+		t := template.New("upload.html")
+		t, _ = t.Parse(uploadPage)
+
+		uploadURL := struct {
+			PostURL string
+		}{
+			PostURL: "http://" + r.Host + "/upload",
+		}
+
+		t.Execute(w, uploadURL)
+	} else {
+		r.ParseMultipartForm(32 << 20)
+		file, hander, err := r.FormFile("uFile")
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		defer file.Close()
+
+		os.Mkdir("uploadDir/", 0666)
+
+		f, err := os.OpenFile("uploadDir/"+hander.Filename, os.O_WRONLY|os.O_CREATE, 0666)
+		if err != nil {
+			fmt.Println(err)
+			fmt.Fprintln(w, "文件写入错误")
+		} else {
+			fmt.Fprintln(w, "文件上传成功")
+		}
+
+		defer f.Close()
+		io.Copy(f, file)
+	}
+}
+
 func main() {
+
 	var lisPort string
 
 	if lisPort = TerminalInput(); lisPort == "" {
@@ -163,12 +215,14 @@ func main() {
 	}
 
 	http.Handle("/", http.FileServer(http.Dir(".")))
+	http.HandleFunc("/upload", fileUploadHander)
 
 	if !getIPByMyself(lisPort) {
 		fmt.Println("")
 	}
 
 	fmt.Printf(getCurrentDir() + " 正在被共享")
+	fmt.Println("在地址后加入/upload即可上传文件")
 
 	http.ListenAndServe(lisPort, nil)
 }
