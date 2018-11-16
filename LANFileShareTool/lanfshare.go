@@ -138,7 +138,7 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 func choicePort() string {
 	var port string
 
-	fmt.Printf("选择一个端口[默认8000]:")
+	fmt.Printf("选择一个大于1024的端口[默认8000]:")
 	fmt.Scanln(&port)
 
 	if strings.Compare(port, "") == 0 {
@@ -191,6 +191,11 @@ func fileUploadHander(w http.ResponseWriter, r *http.Request) {
 
 		defer file.Close()
 
+		if file == nil {
+			fmt.Fprintln(w, "你没有选择文件")
+			return
+		}
+
 		os.Mkdir("uploadDir/", 0666)
 
 		f, err := os.OpenFile("uploadDir/"+hander.Filename, os.O_WRONLY|os.O_CREATE, 0666)
@@ -210,19 +215,26 @@ func main() {
 
 	var lisPort string
 
+	http.Handle("/", http.FileServer(http.Dir(".")))
+	http.HandleFunc("/upload", fileUploadHander)
+
+Loop:
+
+	lisPort = ""
 	if lisPort = TerminalInput(); lisPort == "" {
 		lisPort = choicePort()
 	}
 
-	http.Handle("/", http.FileServer(http.Dir(".")))
-	http.HandleFunc("/upload", fileUploadHander)
-
+	//fmt.Println(lisPort)
 	if !getIPByMyself(lisPort) {
-		fmt.Println("")
+		fmt.Println("0.0.0.0" + lisPort)
 	}
 
-	fmt.Printf(getCurrentDir() + " 正在被共享")
+	fmt.Printf(getCurrentDir() + " 正在被共享\n")
 	fmt.Println("在地址后加入/upload即可上传文件")
 
-	http.ListenAndServe(lisPort, nil)
+	if err := http.ListenAndServe(lisPort, nil); err != nil {
+		fmt.Println("你选择的端口已被占用,请重新选择")
+		goto Loop
+	}
 }
