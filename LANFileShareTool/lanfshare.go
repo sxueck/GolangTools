@@ -9,11 +9,17 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
 )
+
+//清空屏幕
+var clear map[string]func()
 
 //ICMP Proccotol Datapack
 type ICMP struct {
@@ -22,6 +28,20 @@ type ICMP struct {
 	Checknum    uint16
 	Identifer   uint16
 	SequenceNum uint16
+}
+
+func init() {
+	clear = make(map[string]func())
+	clear["linux"] = func() {
+		cmd := exec.Command("clear")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+	clear["windows"] = func() {
+		cmd := exec.Command("cmd", "/c", "cls")
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
 }
 
 func getCurrentDir() string {
@@ -113,7 +133,7 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 
 	conn, err := net.DialIP("ip4:icmp", nil, raddr)
 	if err != nil {
-		log.Fatal("ip address error")
+		return false
 	}
 	defer conn.Close()
 
@@ -148,11 +168,17 @@ func choicePort() string {
 	return (":" + port)
 }
 
-//TerminalInput .
-func TerminalInput() string {
+//检查用户输入(从终端)
+func cmdInputPort() string {
 	if len(os.Args) != 1 {
 		//终端输入
-		return os.Args[1]
+		inValue1 := os.Args[1]
+		if port, err := strconv.Atoi(inValue1); err == nil {
+			//用户第一参数端口号
+			if port < 65535 && port > 0 {
+				return (":" + inValue1)
+			}
+		}
 	}
 	return ""
 }
@@ -211,30 +237,69 @@ func fileUploadHander(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func shareFileCheck(path chan string) {
+
+	var sharePath string
+
+	//如果没有参数2但是有参数1则将参数2当为共享路径
+	//如果不包含参数，则设置为当前目录
+	switch len(os.Args) {
+	case 2:
+		sharePath = os.Args[1]
+	case 3:
+		sharePath = os.Args[2]
+	default:
+		sharePath = getCurrentDir()
+	}
+
+	_, err := os.Stat(sharePath)
+	if err != nil {
+		path <- getCurrentDir()
+	}
+	path <- sharePath
+}
+
+func callClear() {
+	//runtime.GOOS -> linux, windows, darwin etc.
+	value, resOk := clear[runtime.GOOS]
+	if resOk {
+		value()
+	}
+}
+
 func main() {
 
 	var lisPort string
+	sharePathThread := make(chan string)
 
-	http.Handle("/", http.FileServer(http.Dir(".")))
+	go shareFileCheck(sharePathThread)
+	sharePATH := <-sharePathThread
+
+	http.Handle("/", http.FileServer(http.Dir(sharePATH)))
 	http.HandleFunc("/upload", fileUploadHander)
 
 Loop:
 
 	lisPort = ""
-	if lisPort = TerminalInput(); lisPort == "" {
+	if lisPort = cmdInputPort(); lisPort == "" {
 		lisPort = choicePort()
 	}
 
 	//fmt.Println(lisPort)
 	if !getIPByMyself(lisPort) {
-		fmt.Println("0.0.0.0" + lisPort)
+		fmt.Println("你的网卡信息获取失败或者无可用内网IP")
+		fmt.Println("请手动查找你的IP")
 	}
 
-	fmt.Printf(getCurrentDir() + " 正在被共享\n")
+	fmt.Printf(sharePATH + " 正在被共享")
 	fmt.Println("在地址后加入/upload即可上传文件")
+	fmt.Println("")
 
 	if err := http.ListenAndServe(lisPort, nil); err != nil {
 		fmt.Println("你选择的端口已被占用,请重新选择")
+
+		//清空终端界面
+		callClear()
 		goto Loop
 	}
 }
