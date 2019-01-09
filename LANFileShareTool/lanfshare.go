@@ -291,7 +291,7 @@ Loop:
 		fmt.Println("请手动查找你的IP")
 	}
 
-	fmt.Printf(sharePATH + " 正在被共享")
+	fmt.Printf(sharePATH + " 正在被共享\n")
 	fmt.Println("在地址后加入/upload即可上传文件")
 	fmt.Println("")
 
