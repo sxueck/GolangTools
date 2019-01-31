@@ -5,27 +5,31 @@ import (
 	"log"
 	"math/rand"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/seehuhn/mt19937"
 	"github.com/tealeg/xlsx"
 )
 
+var wg sync.WaitGroup
+var mutex sync.Mutex
+
+//文件锁，通过读取该变量状态判断文件是否被锁
+var fileMutex int8
+
 func main() {
-	ch := make(chan bool)
+	fileMutex = 0
+	wg.Add(9)
 	for i := 0; i < 9; i++ {
-		if i != 8 {
-			go goSimulation(i, false, nil)
-		} else {
-			go goSimulation(i, true, ch)
-		}
+		go goSimulation(i, &wg)
 	}
-	<-ch
+	wg.Wait()
 	fmt.Println("模拟结束")
 	fmt.Scan()
 }
 
-func goSimulation(i int, checkEndChannel bool, ch chan bool) {
+func goSimulation(i int, wg *sync.WaitGroup) {
 	var people [10000]float64
 	var luckyValue [10000]int
 
@@ -61,9 +65,7 @@ func goSimulation(i int, checkEndChannel bool, ch chan bool) {
 	}
 
 	fmt.Printf("线程%d导出数据完成\n", i+1)
-	if checkEndChannel == true {
-		ch <- true
-	}
+	wg.Done()
 }
 
 func floatToString(num float64) string {
@@ -82,6 +84,13 @@ func goodLucky(salt int) float64 {
 }
 
 func savaData(sheetName string, people [10000]float64, luckyValue [10000]int) bool {
+	if fileMutex != 0 {
+		//判断文件是否有锁
+		return false
+	}
+
+	mutex.Lock()
+	fileMutex = 1
 	file, err := xlsx.OpenFile("result.xlsx")
 
 	if err != nil {
@@ -103,5 +112,9 @@ func savaData(sheetName string, people [10000]float64, luckyValue [10000]int) bo
 		cell.Value = strconv.Itoa(luckyValue[i])
 	}
 	file.Save("result.xlsx")
+
+	mutex.Unlock()
+	fileMutex = 0
+
 	return true
 }
