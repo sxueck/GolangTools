@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/axgle/mahonia"
 	"io"
 	"log"
 	"net"
@@ -17,6 +18,25 @@ import (
 	"text/template"
 	"time"
 )
+
+/*
+#include <stdio.h>
+#include <ShlObj.h>
+
+char* GetSharePath() {
+    char* szPathName = (char*)malloc(sizeof(char)*MAX_PATH);
+    BROWSEINFO bInfo = { 0 };
+    bInfo.hwndOwner = GetForegroundWindow();
+    bInfo.lpszTitle = TEXT("Choice Your Folder");
+    bInfo.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI,BIF_UAHINT| BIF_NONEWFOLDERBUTTON;
+    LPITEMIDLIST lpDlist = SHBrowseForFolder(&bInfo);
+    if(lpDlist != NULL) {
+        SHGetPathFromIDList(lpDlist, szPathName);
+    }
+    return szPathName;
+}
+*/
+import "C"
 
 //清空屏幕
 var clear map[string]func()
@@ -249,7 +269,11 @@ func shareFileCheck(path chan string) {
 	case 3:
 		sharePath = os.Args[2]
 	default:
-		sharePath = getCurrentDir()
+		if runtime.GOOS == "windows" {
+			sharePath = winUserpath()
+		} else {
+			sharePath = getCurrentDir()
+		}
 	}
 
 	_, err := os.Stat(sharePath)
@@ -267,6 +291,16 @@ func callClear() {
 	}
 }
 
+func winUserpath() string {
+	path := C.GetSharePath()
+	cString := []byte(C.GoString(path))
+	enc := mahonia.NewDecoder("GBK")
+	_, cdata, _ := enc.Translate(cString, true)
+	var upath string = string(cdata[:])
+	return upath
+}
+
+
 func main() {
 
 	var lisPort string
@@ -275,8 +309,10 @@ func main() {
 	go shareFileCheck(sharePathThread)
 	sharePATH := <-sharePathThread
 
-	http.Handle("/", http.FileServer(http.Dir(sharePATH)))
-	http.HandleFunc("/upload", fileUploadHander)
+	mux := http.NewServeMux()
+	mux.Handle("/", http.FileServer(http.Dir(sharePATH)))
+	mux.HandleFunc("/upload", fileUploadHander)
+
 
 Loop:
 
@@ -295,8 +331,16 @@ Loop:
 	fmt.Println("在地址后加入/upload即可上传文件")
 	fmt.Println("")
 
-	if err := http.ListenAndServe(lisPort, nil); err != nil {
+	server := http.Server{
+		Addr:    "0.0.0.0"+lisPort,
+		Handler: mux,
+	}
+
+	if err := server.ListenAndServeTLS("key/lfs.crt", "key/lfs.key"); err != nil {
+		//log.Fatal(err)
+		//TODO:这里闪太快了，需要优化
 		fmt.Println("你选择的端口已被占用,请重新选择")
+		time.Sleep(time.Second)
 
 		//清空终端界面
 		callClear()
