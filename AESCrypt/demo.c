@@ -61,7 +61,7 @@ int main(){
     // 32位16进制密钥
     char * password = "0f1571c947d9e8590cb7add6af7f6798";
     aes(source_path, des_path, password, method);
-    printf("success!!!!!!!!!!");
+    printf("解密成功了，敲里吗！！！累死我了");
 
 }
 
