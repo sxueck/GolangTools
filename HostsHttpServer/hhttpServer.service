@@ -1,0 +1,15 @@
+[Unit]
+Description=SXueck Hosts Update HTTP Server
+After=syslog.target network-online.target
+
+[Service]
+Type=simple
+User=root
+#EnvironmentFile=/etc/hhttpServer/hhttpServer
+ExecStart=/etc/hhttpServer/hhttpServer
+Restart=/bin/kill -HUP $MAINPID
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
