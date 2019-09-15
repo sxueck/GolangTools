@@ -1,11 +1,13 @@
 package main
 
 import (
+	"flag"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,35 +36,51 @@ var (
 
 	wg    sync.WaitGroup
 	mutex sync.Mutex
+
+	lfilepath string
+	downdir   string
 )
 
-func main() {
-	download(Wireshark())
-	other()
+func init() {
+	if strings.Compare(runtime.GOOS, "linux") == 0 {
+		LOGPATH = "/tmp/autoupdate.log"
+	} else {
+		LOGPATH = "./autoupdate.log"
+	}
 }
 
-func download(link, fpath string) error {
+//link file and download dir
+func flags() (string, string) {
+	link := flag.String("link", "AutoUpdateLink.txt", "Your link file")
+	downdir := flag.String("dir", "Downloads", "Download dir")
+	flag.Parse()
+	return *link, *downdir
+}
+
+func main() {
+	lfilepath, downdir = flags()
+
+	//增加容错度
+	downdir += "/"
+
+	download(Wireshark())
+	other(lfilepath)
+}
+
+func download(link, fname string) {
 	//清空结构体，避免之前的信息影响后面
-	ifile = FILEINFO{link: link}
-
-	if _, err := os.Stat(fpath); err != nil {
-		if os.IsNotExist(err) {
-			if createFile, err := os.Create(fpath); err == nil {
-				ifile.f = createFile
-				defer ifile.f.Close()
-			}
-		}
-	} else {
-		log.Println("File exists,covering...")
+	ifile = FILEINFO{link: link, f: fpoen(downdir + fname)}
+	if ifile.f == nil {
+		log.Fatal(fname + " file write error")
+		//wLog(fname + "file write error")
+		return
 	}
-
 	if ifile.checkHead() {
-		dispSliceDownload()
+		dispSliceDownload(fname)
 	} else {
-		log.Println(link, "Direct Download")
-		directDownload()
+		wLog(link + "Direct Download")
+		directDownload(fname)
 	}
-	return nil
 }
 
 //判断是否支持多线程下载
@@ -82,18 +100,18 @@ func (*FILEINFO) checkHead() bool {
 	return false
 }
 
-func directDownload() {
-	log.Println("Download Starting...")
-	res,err := http.Get(ifile.link)
+func directDownload(fname string) {
+	wLog(" Download " + fname + "Starting...")
+	res, err := http.Get(ifile.link)
 	if err != nil {
-		log.Printf("download error : ",err)
+		wLog("download error : " + err.Error())
 	}
-	io.Copy(ifile.f,res.Body)
-	log.Println("Download Success")
+	io.Copy(ifile.f, res.Body)
+	wLog("Download Success")
 }
 
-func dispSliceDownload() {
-	log.Println("Download Starting...")
+func dispSliceDownload(fname string) {
+	wLog(" Download " + fname + " Starting...")
 	defer ifile.f.Close()
 	//计算每个线程的下载区块大小
 	dispi := ifile.contentLen / int64(dthreads)
@@ -124,23 +142,23 @@ func dispSliceDownload() {
 		}
 	}
 	wg.Wait()
-	log.Println("Download Success")
+	wLog("Download Success")
 }
 
 func sliceDownload(req *http.Request, fdown DOWNLOAD, f FILEINFO) {
 	client := new(http.Client)
 	if res, err := client.Do(req); err == nil && strings.Contains(res.Status, "206") {
 		defer res.Body.Close()
-		b,err := ioutil.ReadAll(res.Body)
+		b, err := ioutil.ReadAll(res.Body)
 		if err != io.EOF && err != nil {
-			log.Printf("threads %d download error : %s",fdown.threadsNum,err)
+			log.Printf("threads %d download error : %s", fdown.threadsNum, err)
 		}
 		//防止同时对同一文件进行读写
 		mutex.Lock()
-		_,err = ifile.f.WriteAt(b,fdown.start)
+		_, err = ifile.f.WriteAt(b, fdown.start)
 		mutex.Unlock()
-		if err != nil  {
-			log.Printf("threads %d write error: %s", fdown.threadsNum,err)
+		if err != nil {
+			log.Printf("threads %d write error: %s", fdown.threadsNum, err)
 		}
 	}
 	wg.Done()
