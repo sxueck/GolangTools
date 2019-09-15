@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -26,16 +29,33 @@ func Wireshark() (string,string) {
 	return dlink,"wireshark.exe"
 }
 
-func other() {
-	//fidder4
-	download(dealink("https://telerik-fiddler.s3.amazonaws.com/fiddler/FiddlerSetup.exe"))
-	//teamviewer
-	download(dealink("https://dl.teamviewer.com/download/TeamViewer_Setup.exe"))
-	//chrome
-	download(dealink("https://dl.google.com/tag/s/lang%3Dzh-CN/chrome/install/ChromeStandaloneSetup64.exe"))
+func other(linkfileargs string) {
+	link := readlink(linkfileargs)
+	for _,v := range link {
+		download(dealink(v))
+	}
 }
 
 func dealink(dlink string) (string,string) {
 	fnameSplit := strings.Split(dlink,"/")
 	return dlink,fnameSplit[len(fnameSplit) - 1]
+}
+
+func readlink(linkfile string) []string {
+	f,err := os.Open(linkfile)
+	if err != nil {
+		return nil
+	}
+	buf := bufio.NewReader(f)
+	var link []string
+	for {
+		line, err := buf.ReadString('\n')
+		line = strings.TrimSpace(line)
+
+		//这这要放在判断结尾之前，不然最后一行会无法写入
+		link = append(link,line)
+		if err == io.EOF {
+			return link
+		}
+	}
 }
