@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/axgle/mahonia"
+	"github.com/labstack/echo/v4"
 	"io"
 	"log"
 	"net"
@@ -25,23 +26,29 @@ import (
 
 char* GetSharePath() {
     char* szPathName = (char*)malloc(sizeof(char)*MAX_PATH);
+    if (szPathName == NULL) {
+        return NULL;  // Failed to allocate memory
+    }
     BROWSEINFO bInfo = { 0 };
     bInfo.hwndOwner = GetForegroundWindow();
-    bInfo.lpszTitle = TEXT("Choice Your Folder");
-    bInfo.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI,BIF_UAHINT| BIF_NONEWFOLDERBUTTON;
+    bInfo.lpszTitle = TEXT("选择你的文件夹");
+    bInfo.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI | BIF_UAHINT | BIF_NONEWFOLDERBUTTON;
     LPITEMIDLIST lpDlist = SHBrowseForFolder(&bInfo);
     if(lpDlist != NULL) {
         SHGetPathFromIDList(lpDlist, szPathName);
+    } else {
+        free(szPathName);
+        szPathName = NULL;
     }
     return szPathName;
 }
 */
 import "C"
 
-//清空屏幕
+// 清空屏幕
 var clear map[string]func()
 
-//ICMP Proccotol Datapack
+// ICMP Proccotol Datapack
 type ICMP struct {
 	Type        uint8
 	Code        uint8
@@ -148,10 +155,8 @@ func checkSum(data []byte) uint16 {
 }
 
 func judgeNetStatus(icmp ICMP, host string) bool {
-
-	raddr, err := net.ResolveIPAddr("ip", host)
-
-	conn, err := net.DialIP("ip4:icmp", nil, raddr)
+	rAddr, err := net.ResolveIPAddr("ip", host)
+	conn, err := net.DialIP("ip4:icmp", nil, rAddr)
 	if err != nil {
 		return false
 	}
@@ -159,7 +164,7 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 
 	var buffer bytes.Buffer
 	binary.Write(&buffer, binary.BigEndian, icmp)
-	if _, err := conn.Write(buffer.Bytes()); err != nil {
+	if _, err = conn.Write(buffer.Bytes()); err != nil {
 		log.Fatal(err)
 	}
 
@@ -176,34 +181,31 @@ func judgeNetStatus(icmp ICMP, host string) bool {
 }
 
 func choicePort() string {
-	var port string
-
 	fmt.Printf("选择一个大于1024的端口[默认8000]:")
 	fmt.Scanln(&port)
 
-	if strings.Compare(port, "") == 0 {
+	if strings.Compare(strconv.Itoa(port), "") == 0 {
 		return ":8000"
 	}
 
-	return (":" + port)
+	return fmt.Sprintf(":%d", port)
 }
 
-//检查用户输入(从终端)
 func cmdInputPort() string {
 	if len(os.Args) != 1 {
-		//终端输入
+		var err error
 		inValue1 := os.Args[1]
-		if port, err := strconv.Atoi(inValue1); err == nil {
+		if port, err = strconv.Atoi(inValue1); err == nil {
 			//用户第一参数端口号
 			if port < 65535 && port > 0 {
-				return (":" + inValue1)
+				return ":" + inValue1
 			}
 		}
 	}
 	return ""
 }
 
-func fileUploadHander(w http.ResponseWriter, r *http.Request) {
+func fileUploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		uploadPage := `
 		<html>
@@ -221,10 +223,14 @@ func fileUploadHander(w http.ResponseWriter, r *http.Request) {
 		t := template.New("upload.html")
 		t, _ = t.Parse(uploadPage)
 
+		isPlain := "http"
+		if r.TLS == nil {
+			isPlain = "https"
+		}
 		uploadURL := struct {
 			PostURL string
 		}{
-			PostURL: "http://" + r.Host + "/upload",
+			PostURL: fmt.Sprintf("%s://%s/upload", isPlain, r.Host),
 		}
 
 		t.Execute(w, uploadURL)
@@ -300,7 +306,6 @@ func winUserpath() string {
 	return upath
 }
 
-
 func main() {
 
 	var lisPort string
@@ -309,13 +314,16 @@ func main() {
 	go shareFileCheck(sharePathThread)
 	sharePATH := <-sharePathThread
 
-	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.Dir(sharePATH)))
-	mux.HandleFunc("/upload", fileUploadHander)
-
+	e := echo.New()
+	e.GET("/", echo.WrapHandler(
+		http.FileServer(http.Dir(sharePATH))),
+	)
+	e.Any("/upload", func(c echo.Context) error {
+		fileUploadHandler(c.Response().Writer, c.Request())
+		return c.String(http.StatusOK, "上传成功")
+	})
 
 Loop:
-
 	lisPort = ""
 	if lisPort = cmdInputPort(); lisPort == "" {
 		lisPort = choicePort()
@@ -331,14 +339,7 @@ Loop:
 	fmt.Println("在地址后加入/upload即可上传文件")
 	fmt.Println("")
 
-	server := http.Server{
-		Addr:    "0.0.0.0"+lisPort,
-		Handler: mux,
-	}
-
-	if err := server.ListenAndServeTLS("key/lfs.crt", "key/lfs.key"); err != nil {
-		//log.Fatal(err)
-		//TODO:这里闪太快了，需要优化
+	if err := e.StartAutoTLS(fmt.Sprintf("%s", lisPort)); err != nil {
 		fmt.Println("你选择的端口已被占用,请重新选择")
 		time.Sleep(time.Second)
 
